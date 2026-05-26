@@ -226,6 +226,7 @@
 'use strict';
 
 const STORAGE_KEY = 'angle-measure-v1';
+const MAX_LONGEST_SIDE = 2000; // px — images larger than this are downscaled on upload
 const PALETTE = ['#4f46e5','#dc2626','#16a34a','#ea580c','#9333ea','#0891b2','#db2777','#ca8a04'];
 const POINT_R_SCREEN = 11;
 const POINT_HIT_R = 20;
@@ -332,10 +333,28 @@ function fileToDataUrl(file) {
   });
 }
 
+function downscaleDataUrl(dataUrl, maxSide) {
+  return new Promise(resolve => {
+    const tmp = new Image();
+    tmp.onload = () => {
+      const { naturalWidth: w, naturalHeight: h } = tmp;
+      if (Math.max(w, h) <= maxSide) { resolve(dataUrl); return; }
+      const scale = maxSide / Math.max(w, h);
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * scale);
+      c.height = Math.round(h * scale);
+      c.getContext('2d').drawImage(tmp, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.92));
+    };
+    tmp.src = dataUrl;
+  });
+}
+
 async function handleFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
   if (state.triplets.length > 0 && !confirm('Loading a new image will clear current triplets. Continue?')) return;
-  const url = await fileToDataUrl(file);
+  const raw = await fileToDataUrl(file);
+  const url = await downscaleDataUrl(raw, MAX_LONGEST_SIDE);
   state.triplets = [];
   state.nextId = 1;
   state.selected = null;
