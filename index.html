@@ -174,6 +174,19 @@
 
   input[type=file] { display: none; }
 
+  #magnifier {
+    position: absolute;
+    width: 180px; height: 180px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    pointer-events: none;
+    display: none;
+    z-index: 20;
+    transition: left .08s, top .08s;
+  }
+  #magnifier.visible { display: block; }
+
   @media (max-width: 720px) {
     header { padding: 8px 10px; gap: 6px; flex-wrap: wrap; }
     header h1 { font-size: 15px; }
@@ -207,6 +220,7 @@
         <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
       </div>
       <div class="status" id="status"></div>
+      <canvas id="magnifier" width="360" height="360"></canvas>
       <div class="zoom-controls">
         <button id="btn-zoom-out" title="Zoom out">&minus;</button>
         <span class="zoom-label" id="zoom-label">100%</span>
@@ -229,6 +243,9 @@ const STORAGE_KEY = 'angle-measure-v1';
 const MAX_LONGEST_SIDE = 2000; // px — images larger than this are downscaled on upload
 const PALETTE = ['#4f46e5','#dc2626','#16a34a','#ea580c','#9333ea','#0891b2','#db2777','#ca8a04'];
 const POINT_R_SCREEN = 11;
+const MAG_CANVAS_SIZE = 360;  // canvas resolution (2× the 180px CSS size)
+const MAG_CSS_SIZE = 180;
+const MAG_WINDOW_IMG = 80;    // image-pixel radius shown in the loupe (full window = 2× this)
 const POINT_HIT_R = 20;
 const DOT_R_SCREEN = 2.2;
 const ARC_R_SCREEN = 32;
@@ -255,6 +272,8 @@ const placeholder = $('placeholder');
 const statusEl = $('status');
 const panelList = $('panel-list');
 const zoomLabel = $('zoom-label');
+const magnifier = $('magnifier');
+const magCtx = magnifier.getContext('2d');
 
 /* ---------------- persistence ---------------- */
 
@@ -642,10 +661,10 @@ canvasArea.addEventListener('pointermove', e => {
     const p = screenToImage(e.clientX, e.clientY);
     const t = state.triplets.find(t => t.id === dragTarget.tripletId);
     if (!t) return;
-    t.points[dragTarget.pointIdx] = {
-      x: Math.max(0, Math.min(state.imgW, p.x)),
-      y: Math.max(0, Math.min(state.imgH, p.y)),
-    };
+    const clampedX = Math.max(0, Math.min(state.imgW, p.x));
+    const clampedY = Math.max(0, Math.min(state.imgH, p.y));
+    t.points[dragTarget.pointIdx] = { x: clampedX, y: clampedY };
+    showMagnifier(clampedX, clampedY, t.color, e.clientX, e.clientY);
     scheduleRender();
   } else if (dragTarget.kind === 'pan') {
     state.viewport.tx = dragTarget.startTx + (e.clientX - dragTarget.startPx);
@@ -665,12 +684,68 @@ function endPointer(e) {
   activePointers.delete(e.pointerId);
   if (activePointers.size < 2) pinchStart = null;
   if (activePointers.size === 0) {
+    hideMagnifier();
     if (dragTarget) { render(); save(); }
     dragTarget = null;
   }
 }
 canvasArea.addEventListener('pointerup', endPointer);
 canvasArea.addEventListener('pointercancel', endPointer);
+
+/* ---------------- magnifier ---------------- */
+
+function showMagnifier(imgX, imgY, color, screenX, screenY) {
+  const areaRect = canvasArea.getBoundingClientRect();
+  const margin = 14;
+
+  // Position loupe in the corner furthest from the finger
+  const useRight = (screenX - areaRect.left) < areaRect.width / 2;
+  const useBottom = (screenY - areaRect.top) < areaRect.height / 2;
+  magnifier.style.left = useRight ? (areaRect.width  - MAG_CSS_SIZE - margin) + 'px'
+                                  : margin + 'px';
+  magnifier.style.top  = useBottom ? (areaRect.height - MAG_CSS_SIZE - margin) + 'px'
+                                   : margin + 'px';
+
+  // Source rectangle in image space (clamped to image bounds)
+  const half = MAG_WINDOW_IMG;
+  const srcX = imgX - half, srcY = imgY - half;
+  const srcW = half * 2,    srcH = half * 2;
+
+  magCtx.clearRect(0, 0, MAG_CANVAS_SIZE, MAG_CANVAS_SIZE);
+
+  // Neutral background for areas outside the image
+  magCtx.fillStyle = '#e5e7eb';
+  magCtx.fillRect(0, 0, MAG_CANVAS_SIZE, MAG_CANVAS_SIZE);
+
+  // Draw image section
+  magCtx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, MAG_CANVAS_SIZE, MAG_CANVAS_SIZE);
+
+  // Crosshair
+  const cx = MAG_CANVAS_SIZE / 2;
+  magCtx.strokeStyle = 'rgba(0,0,0,0.3)';
+  magCtx.lineWidth = 1.5;
+  magCtx.beginPath();
+  magCtx.moveTo(cx, 0); magCtx.lineTo(cx, MAG_CANVAS_SIZE);
+  magCtx.moveTo(0, cx); magCtx.lineTo(MAG_CANVAS_SIZE, cx);
+  magCtx.stroke();
+
+  // Point ring at centre
+  const pr = 13;
+  magCtx.strokeStyle = 'white';
+  magCtx.lineWidth = 4;
+  magCtx.beginPath(); magCtx.arc(cx, cx, pr, 0, Math.PI * 2); magCtx.stroke();
+  magCtx.strokeStyle = color;
+  magCtx.lineWidth = 2.5;
+  magCtx.beginPath(); magCtx.arc(cx, cx, pr, 0, Math.PI * 2); magCtx.stroke();
+  magCtx.fillStyle = color;
+  magCtx.beginPath(); magCtx.arc(cx, cx, 3.5, 0, Math.PI * 2); magCtx.fill();
+
+  magnifier.classList.add('visible');
+}
+
+function hideMagnifier() {
+  magnifier.classList.remove('visible');
+}
 
 /* ---------------- rendering ---------------- */
 
