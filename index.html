@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Angle Measure</title>
+<link rel="icon" href="favicon.svg">
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --danger: #dc2626;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    z-index: 10;
+  }
+  header h1 {
+    margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+    flex: 0 0 auto;
+  }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+
+  button {
+    font: inherit;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+    min-height: 36px;
+  }
+  button:hover { background: #f3f4f6; }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  button.primary.active { background: var(--accent-hover); box-shadow: inset 0 0 0 2px white, inset 0 0 0 3px var(--accent-hover); }
+  button.danger { color: var(--danger); border-color: #fecaca; }
+  button.danger:hover { background: #fef2f2; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  main { flex: 1; display: flex; min-height: 0; position: relative; }
+
+  .canvas-area {
+    flex: 1; position: relative; overflow: hidden;
+    background: #f1f5f9;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 15px;
+    pointer-events: none;
+    flex-direction: column; gap: 6px;
+    padding: 20px;
+    text-align: center;
+  }
+  .placeholder.hidden { display: none; }
+  .placeholder strong { color: var(--text); font-weight: 600; font-size: 17px; }
+
+  .stage {
+    position: absolute;
+    top: 0; left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .stage img { display: block; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+  .stage svg {
+    position: absolute; top: 0; left: 0;
+    overflow: visible;
+  }
+
+  .zoom-controls {
+    position: absolute; right: 12px; bottom: 12px;
+    display: flex; gap: 2px; align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: var(--shadow);
+    z-index: 5;
+  }
+  .zoom-controls button {
+    padding: 4px 10px; min-height: 32px;
+    border: none; background: transparent;
+    font-size: 16px;
+  }
+  .zoom-controls button:hover { background: #f3f4f6; }
+  .zoom-controls .zoom-label {
+    font-variant-numeric: tabular-nums;
+    padding: 0 8px; color: var(--muted);
+    min-width: 52px; text-align: center;
+  }
+
+  .panel {
+    width: 280px; flex: 0 0 280px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600; font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .panel-list { flex: 1; overflow-y: auto; padding: 6px; }
+  .panel-empty { padding: 24px 16px; color: var(--muted); text-align: center; font-size: 13px; }
+
+  .triplet-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .triplet-row:hover { background: #f3f4f6; }
+  .triplet-row.selected { background: #eef2ff; }
+  .triplet-swatch {
+    width: 12px; height: 12px; border-radius: 50%;
+    flex: 0 0 auto;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
+  }
+  .triplet-label { font-weight: 500; min-width: 28px; }
+  .triplet-angle {
+    font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums;
+    margin-left: auto; padding-right: 4px;
+  }
+  .triplet-delete {
+    border: none; background: transparent;
+    color: var(--muted); padding: 4px 8px; min-height: 0;
+    border-radius: 4px; font-size: 20px; line-height: 1;
+    cursor: pointer;
+  }
+  .triplet-delete:hover { background: #fee2e2; color: var(--danger); }
+
+  .status {
+    position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+    background: var(--accent); color: white;
+    padding: 8px 16px; border-radius: 999px;
+    font-size: 13px; font-weight: 500;
+    box-shadow: var(--shadow);
+    z-index: 5;
+    display: none;
+    white-space: nowrap;
+  }
+  .status.show { display: block; }
+
+  input[type=file] { display: none; }
+
+  @media (max-width: 720px) {
+    header { padding: 8px 10px; gap: 6px; flex-wrap: wrap; }
+    header h1 { font-size: 15px; }
+    .toolbar { gap: 6px; }
+    .toolbar button { padding: 7px 10px; font-size: 13px; min-height: 34px; }
+    main { flex-direction: column; }
+    .panel { width: 100%; flex: 0 0 auto; max-height: 38vh; border-left: none; border-top: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Angle Measure</h1>
+    <div class="toolbar">
+      <button id="btn-upload">Upload</button>
+      <button id="btn-add" class="primary">Add triplet</button>
+      <button id="btn-export">Export PNG</button>
+      <button id="btn-clear" class="danger">Clear</button>
+    </div>
+    <input type="file" id="file-input" accept="image/*">
+  </header>
+  <main>
+    <div class="canvas-area" id="canvas-area">
+      <div class="placeholder" id="placeholder">
+        <strong>Drop, paste, or upload a photo</strong>
+        <span>Then click "Add triplet" to measure an angle</span>
+      </div>
+      <div class="stage" id="stage">
+        <img id="img" alt="">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="zoom-controls">
+        <button id="btn-zoom-out" title="Zoom out">&minus;</button>
+        <span class="zoom-label" id="zoom-label">100%</span>
+        <button id="btn-zoom-in" title="Zoom in">+</button>
+        <button id="btn-zoom-fit" title="Fit to screen">Fit</button>
+      </div>
+    </div>
+    <aside class="panel">
+      <div class="panel-header">Triplets</div>
+      <div class="panel-list" id="panel-list">
+        <div class="panel-empty">No triplets yet</div>
+      </div>
+    </aside>
+  </main>
+</div>
+<script>
+'use strict';
+
+const STORAGE_KEY = 'angle-measure-v1';
+const PALETTE = ['#4f46e5','#dc2626','#16a34a','#ea580c','#9333ea','#0891b2','#db2777','#ca8a04'];
+const POINT_R_SCREEN = 11;
+const POINT_HIT_R = 20;
+const DOT_R_SCREEN = 2.2;
+const ARC_R_SCREEN = 32;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const state = {
+  imageDataUrl: null,
+  imgW: 0,
+  imgH: 0,
+  triplets: [],
+  nextId: 1,
+  selected: null,
+  viewport: { scale: 1, tx: 0, ty: 0 },
+  placeMode: false,
+  placeBuffer: [],
+};
+
+const $ = id => document.getElementById(id);
+const canvasArea = $('canvas-area');
+const stage = $('stage');
+const img = $('img');
+const svg = $('svg');
+const placeholder = $('placeholder');
+const statusEl = $('status');
+const panelList = $('panel-list');
+const zoomLabel = $('zoom-label');
+
+/* ---------------- persistence ---------------- */
+
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        imageDataUrl: state.imageDataUrl,
+        imgW: state.imgW,
+        imgH: state.imgH,
+        triplets: state.triplets,
+        nextId: state.nextId,
+        viewport: state.viewport,
+      }));
+    } catch (e) { console.warn('save failed', e); }
+  }, 250);
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (!p.imageDataUrl) return;
+    loadImage(p.imageDataUrl).then(() => {
+      state.triplets = p.triplets || [];
+      state.nextId = p.nextId || (state.triplets.length + 1);
+      if (p.viewport) {
+        state.viewport = p.viewport;
+        applyViewport();
+      }
+      render();
+    });
+  } catch (e) { console.warn('load failed', e); }
+}
+
+/* ---------------- image loading ---------------- */
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const tmp = new Image();
+    tmp.onload = () => {
+      state.imageDataUrl = dataUrl;
+      state.imgW = tmp.naturalWidth;
+      state.imgH = tmp.naturalHeight;
+      img.src = dataUrl;
+      img.width = tmp.naturalWidth;
+      img.height = tmp.naturalHeight;
+      svg.setAttribute('width', tmp.naturalWidth);
+      svg.setAttribute('height', tmp.naturalHeight);
+      svg.setAttribute('viewBox', `0 0 ${tmp.naturalWidth} ${tmp.naturalHeight}`);
+      placeholder.classList.add('hidden');
+      fitToScreen();
+      resolve();
+    };
+    tmp.onerror = reject;
+    tmp.src = dataUrl;
+  });
+}
+
+function fileToDataUrl(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function handleFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  if (state.triplets.length > 0 && !confirm('Loading a new image will clear current triplets. Continue?')) return;
+  const url = await fileToDataUrl(file);
+  state.triplets = [];
+  state.nextId = 1;
+  state.selected = null;
+  exitPlaceMode();
+  await loadImage(url);
+  render();
+  save();
+}
+
+$('btn-upload').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) handleFile(f);
+  e.target.value = '';
+});
+
+canvasArea.addEventListener('dragover', e => { e.preventDefault(); });
+canvasArea.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+
+window.addEventListener('paste', e => {
+  if (!e.clipboardData) return;
+  for (const item of e.clipboardData.items) {
+    if (item.type && item.type.startsWith('image/')) {
+      const f = item.getAsFile();
+      if (f) { handleFile(f); break; }
+    }
+  }
+});
+
+/* ---------------- viewport ---------------- */
+
+function applyViewport() {
+  const v = state.viewport;
+  stage.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`;
+  zoomLabel.textContent = Math.round(v.scale * 100) + '%';
+  render();
+}
+
+function fitToScreen() {
+  if (!state.imgW) return;
+  const r = canvasArea.getBoundingClientRect();
+  const s = Math.min(r.width / state.imgW, r.height / state.imgH) * 0.95;
+  state.viewport.scale = s;
+  state.viewport.tx = (r.width - state.imgW * s) / 2;
+  state.viewport.ty = (r.height - state.imgH * s) / 2;
+  applyViewport();
+}
+
+function screenToImage(sx, sy) {
+  const r = canvasArea.getBoundingClientRect();
+  const v = state.viewport;
+  return {
+    x: (sx - r.left - v.tx) / v.scale,
+    y: (sy - r.top - v.ty) / v.scale,
+  };
+}
+
+function zoomAt(sx, sy, factor) {
+  const v = state.viewport;
+  const newScale = Math.max(0.05, Math.min(40, v.scale * factor));
+  const r = canvasArea.getBoundingClientRect();
+  const px = sx - r.left, py = sy - r.top;
+  v.tx = px - (px - v.tx) * (newScale / v.scale);
+  v.ty = py - (py - v.ty) * (newScale / v.scale);
+  v.scale = newScale;
+  applyViewport();
+  save();
+}
+
+canvasArea.addEventListener('wheel', e => {
+  if (!state.imageDataUrl) return;
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.0015);
+  zoomAt(e.clientX, e.clientY, factor);
+}, { passive: false });
+
+$('btn-zoom-in').addEventListener('click', () => {
+  const r = canvasArea.getBoundingClientRect();
+  zoomAt(r.left + r.width/2, r.top + r.height/2, 1.25);
+});
+$('btn-zoom-out').addEventListener('click', () => {
+  const r = canvasArea.getBoundingClientRect();
+  zoomAt(r.left + r.width/2, r.top + r.height/2, 0.8);
+});
+$('btn-zoom-fit').addEventListener('click', fitToScreen);
+
+/* ---------------- triplets ---------------- */
+
+function newTriplet(points) {
+  const id = state.nextId++;
+  const color = PALETTE[(id - 1) % PALETTE.length];
+  return { id, color, points };
+}
+
+function interiorAngle(t) {
+  const [a, v, b] = t.points;
+  const v1x = a.x - v.x, v1y = a.y - v.y;
+  const v2x = b.x - v.x, v2y = b.y - v.y;
+  const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+  if (l1 < 1e-9 || l2 < 1e-9) return 0;
+  const c = (v1x * v2x + v1y * v2y) / (l1 * l2);
+  return Math.acos(Math.max(-1, Math.min(1, c)));
+}
+
+function deleteTriplet(id) {
+  state.triplets = state.triplets.filter(t => t.id !== id);
+  if (state.selected && state.selected.tripletId === id) state.selected = null;
+  render(); save();
+}
+
+$('btn-clear').addEventListener('click', () => {
+  if (!confirm('Clear image and all triplets?')) return;
+  state.imageDataUrl = null;
+  state.imgW = state.imgH = 0;
+  state.triplets = [];
+  state.nextId = 1;
+  state.selected = null;
+  exitPlaceMode();
+  img.removeAttribute('src');
+  placeholder.classList.remove('hidden');
+  state.viewport = { scale: 1, tx: 0, ty: 0 };
+  applyViewport();
+  render();
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+});
+
+/* ---------------- place mode ---------------- */
+
+$('btn-add').addEventListener('click', () => {
+  if (!state.imageDataUrl) { alert('Load an image first.'); return; }
+  if (state.placeMode) { exitPlaceMode(); return; }
+  state.placeMode = true;
+  state.placeBuffer = [];
+  $('btn-add').classList.add('active');
+  canvasArea.style.cursor = 'crosshair';
+  updateStatus();
+  render();
+});
+
+function updateStatus() {
+  if (state.placeMode) {
+    const labels = ['Place arm point 1', 'Place vertex (the angle)', 'Place arm point 2'];
+    statusEl.textContent = labels[state.placeBuffer.length] + ' — Esc to cancel';
+    statusEl.classList.add('show');
+  } else {
+    statusEl.classList.remove('show');
+  }
+}
+
+function exitPlaceMode() {
+  state.placeMode = false;
+  state.placeBuffer = [];
+  $('btn-add').classList.remove('active');
+  canvasArea.style.cursor = '';
+  updateStatus();
+}
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.placeMode) { exitPlaceMode(); render(); return; }
+  if (!state.selected) return;
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  const step = e.shiftKey ? 10 : 1;
+  let dx = 0, dy = 0;
+  if (e.key === 'ArrowLeft') dx = -step;
+  else if (e.key === 'ArrowRight') dx = step;
+  else if (e.key === 'ArrowUp') dy = -step;
+  else if (e.key === 'ArrowDown') dy = step;
+  else if (e.key === 'Delete' || e.key === 'Backspace') {
+    deleteTriplet(state.selected.tripletId);
+    return;
+  } else return;
+  e.preventDefault();
+  const t = state.triplets.find(t => t.id === state.selected.tripletId);
+  if (!t) return;
+  const p = t.points[state.selected.pointIdx];
+  p.x = Math.max(0, Math.min(state.imgW, p.x + dx));
+  p.y = Math.max(0, Math.min(state.imgH, p.y + dy));
+  render(); save();
+});
+
+/* ---------------- pointer interaction ---------------- */
+
+const activePointers = new Map();
+let dragTarget = null;
+let pinchStart = null;
+
+canvasArea.addEventListener('pointerdown', e => {
+  if (!state.imageDataUrl) return;
+  canvasArea.setPointerCapture(e.pointerId);
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (activePointers.size === 2) {
+    const pts = [...activePointers.values()];
+    const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+    pinchStart = {
+      dist: Math.hypot(dx, dy),
+      scale: state.viewport.scale,
+    };
+    dragTarget = null;
+    return;
+  }
+
+  const target = e.target.closest && e.target.closest('[data-point]');
+  if (target) {
+    const tripletId = +target.getAttribute('data-triplet');
+    const pointIdx = +target.getAttribute('data-point');
+    state.selected = { tripletId, pointIdx };
+    dragTarget = { kind: 'point', tripletId, pointIdx };
+    render();
+    return;
+  }
+
+  if (state.placeMode) {
+    const p = screenToImage(e.clientX, e.clientY);
+    if (p.x < 0 || p.y < 0 || p.x > state.imgW || p.y > state.imgH) return;
+    state.placeBuffer.push(p);
+    if (state.placeBuffer.length === 3) {
+      state.triplets.push(newTriplet(state.placeBuffer));
+      exitPlaceMode();
+      save();
+    } else {
+      updateStatus();
+    }
+    render();
+    return;
+  }
+
+  state.selected = null;
+  dragTarget = {
+    kind: 'pan',
+    startTx: state.viewport.tx, startTy: state.viewport.ty,
+    startPx: e.clientX, startPy: e.clientY,
+  };
+  render();
+});
+
+canvasArea.addEventListener('pointermove', e => {
+  if (!activePointers.has(e.pointerId)) return;
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (activePointers.size === 2 && pinchStart) {
+    const pts = [...activePointers.values()];
+    const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+    const newDist = Math.hypot(dx, dy);
+    if (newDist < 1) return;
+    const factor = newDist / pinchStart.dist;
+    const targetScale = Math.max(0.05, Math.min(40, pinchStart.scale * factor));
+    const midX = (pts[0].x + pts[1].x) / 2;
+    const midY = (pts[0].y + pts[1].y) / 2;
+    const r = canvasArea.getBoundingClientRect();
+    const px = midX - r.left, py = midY - r.top;
+    const v = state.viewport;
+    v.tx = px - (px - v.tx) * (targetScale / v.scale);
+    v.ty = py - (py - v.ty) * (targetScale / v.scale);
+    v.scale = targetScale;
+    applyViewport();
+    return;
+  }
+
+  if (!dragTarget) return;
+
+  if (dragTarget.kind === 'point') {
+    const p = screenToImage(e.clientX, e.clientY);
+    const t = state.triplets.find(t => t.id === dragTarget.tripletId);
+    if (!t) return;
+    t.points[dragTarget.pointIdx] = {
+      x: Math.max(0, Math.min(state.imgW, p.x)),
+      y: Math.max(0, Math.min(state.imgH, p.y)),
+    };
+    render();
+  } else if (dragTarget.kind === 'pan') {
+    state.viewport.tx = dragTarget.startTx + (e.clientX - dragTarget.startPx);
+    state.viewport.ty = dragTarget.startTy + (e.clientY - dragTarget.startPy);
+    applyViewport();
+  }
+});
+
+function endPointer(e) {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size < 2) pinchStart = null;
+  if (activePointers.size === 0) {
+    if (dragTarget) save();
+    dragTarget = null;
+  }
+}
+canvasArea.addEventListener('pointerup', endPointer);
+canvasArea.addEventListener('pointercancel', endPointer);
+
+/* ---------------- rendering ---------------- */
+
+function render() {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const s = state.viewport.scale || 1;
+  const sizes = {
+    pointR: POINT_R_SCREEN / s,
+    hitR: POINT_HIT_R / s,
+    dotR: DOT_R_SCREEN / s,
+    arcR: ARC_R_SCREEN / s,
+    strokeW: 2 / s,
+    armW: 1.8 / s,
+    fontSize: 15 / s,
+    idFontSize: 11 / s,
+    dash: 3 / s,
+  };
+
+  for (const t of state.triplets) drawTriplet(t, sizes);
+
+  if (state.placeMode && state.placeBuffer.length > 0) {
+    const previewColor = '#6b7280';
+    for (const p of state.placeBuffer) {
+      drawPoint(p, previewColor, sizes, null, null, false, false);
+    }
+    if (state.placeBuffer.length === 2) {
+      const line = el('line', {
+        x1: state.placeBuffer[0].x, y1: state.placeBuffer[0].y,
+        x2: state.placeBuffer[1].x, y2: state.placeBuffer[1].y,
+        stroke: previewColor, 'stroke-width': sizes.armW,
+        'stroke-dasharray': `${sizes.dash} ${sizes.dash * 0.8}`,
+      });
+      svg.appendChild(line);
+    }
+  }
+
+  renderPanel();
+}
+
+function el(tag, attrs) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function drawTriplet(t, sizes) {
+  const [a, v, b] = t.points;
+  const color = t.color;
+
+  svg.appendChild(el('line', {
+    x1: a.x, y1: a.y, x2: v.x, y2: v.y,
+    stroke: color, 'stroke-width': sizes.armW, 'stroke-linecap': 'round',
+  }));
+  svg.appendChild(el('line', {
+    x1: b.x, y1: b.y, x2: v.x, y2: v.y,
+    stroke: color, 'stroke-width': sizes.armW, 'stroke-linecap': 'round',
+  }));
+
+  const a1 = Math.atan2(a.y - v.y, a.x - v.x);
+  const a2 = Math.atan2(b.y - v.y, b.x - v.x);
+  let delta = a2 - a1;
+  while (delta > Math.PI) delta -= 2 * Math.PI;
+  while (delta < -Math.PI) delta += 2 * Math.PI;
+  const sweepEnd = a1 + delta;
+  const angleDeg = Math.abs(delta) * 180 / Math.PI;
+
+  const arcR = sizes.arcR;
+  const sx = v.x + Math.cos(a1) * arcR;
+  const sy = v.y + Math.sin(a1) * arcR;
+  const ex = v.x + Math.cos(sweepEnd) * arcR;
+  const ey = v.y + Math.sin(sweepEnd) * arcR;
+  const sweepFlag = delta > 0 ? 1 : 0;
+
+  svg.appendChild(el('path', {
+    d: `M ${v.x} ${v.y} L ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey} Z`,
+    fill: color, 'fill-opacity': 0.15,
+  }));
+  svg.appendChild(el('path', {
+    d: `M ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey}`,
+    fill: 'none', stroke: color, 'stroke-width': sizes.armW,
+  }));
+
+  const bisector = a1 + delta / 2;
+  const labelR = arcR + sizes.fontSize * 1.3;
+  const lx = v.x + Math.cos(bisector) * labelR;
+  const ly = v.y + Math.sin(bisector) * labelR;
+  const label = el('text', {
+    x: lx, y: ly,
+    'text-anchor': 'middle', 'dominant-baseline': 'middle',
+    fill: color, 'font-size': sizes.fontSize,
+    'font-weight': 600,
+    'paint-order': 'stroke', stroke: 'white',
+    'stroke-width': 3 / state.viewport.scale,
+    'stroke-linejoin': 'round',
+  });
+  label.textContent = angleDeg.toFixed(1) + '°';
+  svg.appendChild(label);
+
+  const idR = arcR * 1.3;
+  const idAngle = bisector + Math.PI;
+  const idx = v.x + Math.cos(idAngle) * idR;
+  const idy = v.y + Math.sin(idAngle) * idR;
+  const idLabel = el('text', {
+    x: idx, y: idy,
+    'text-anchor': 'middle', 'dominant-baseline': 'middle',
+    fill: color, 'font-size': sizes.idFontSize,
+    'font-weight': 600,
+    'paint-order': 'stroke', stroke: 'white',
+    'stroke-width': 2.5 / state.viewport.scale,
+    'stroke-linejoin': 'round',
+  });
+  idLabel.textContent = 'T' + t.id;
+  svg.appendChild(idLabel);
+
+  for (let i = 0; i < 3; i++) {
+    const isVertex = i === 1;
+    const selected = state.selected
+      && state.selected.tripletId === t.id
+      && state.selected.pointIdx === i;
+    drawPoint(t.points[i], color, sizes, t.id, i, isVertex, selected);
+  }
+}
+
+function drawPoint(p, color, sizes, tripletId, pointIdx, isVertex, selected) {
+  const ringStroke = sizes.strokeW * (isVertex ? 1.4 : 1);
+  svg.appendChild(el('circle', {
+    cx: p.x, cy: p.y, r: sizes.pointR,
+    fill: 'none', stroke: 'white', 'stroke-width': ringStroke * 2,
+    'pointer-events': 'none',
+  }));
+  svg.appendChild(el('circle', {
+    cx: p.x, cy: p.y, r: sizes.pointR,
+    fill: 'none', stroke: color, 'stroke-width': ringStroke,
+    'pointer-events': 'none',
+  }));
+  svg.appendChild(el('circle', {
+    cx: p.x, cy: p.y, r: sizes.dotR,
+    fill: color, 'pointer-events': 'none',
+  }));
+  if (selected) {
+    svg.appendChild(el('circle', {
+      cx: p.x, cy: p.y, r: sizes.pointR * 1.65,
+      fill: 'none', stroke: color,
+      'stroke-width': sizes.strokeW * 0.9,
+      'stroke-dasharray': `${sizes.dash} ${sizes.dash}`,
+      'pointer-events': 'none',
+    }));
+  }
+  if (tripletId != null) {
+    const hit = el('circle', {
+      cx: p.x, cy: p.y, r: sizes.hitR,
+      fill: 'black', 'fill-opacity': 0.001,
+      'data-triplet': tripletId, 'data-point': pointIdx,
+    });
+    hit.style.cursor = 'grab';
+    svg.appendChild(hit);
+  }
+}
+
+function renderPanel() {
+  if (state.triplets.length === 0) {
+    panelList.innerHTML = '<div class="panel-empty">No triplets yet</div>';
+    return;
+  }
+  panelList.innerHTML = '';
+  for (const t of state.triplets) {
+    const angleDeg = interiorAngle(t) * 180 / Math.PI;
+    const isSel = state.selected && state.selected.tripletId === t.id;
+    const row = document.createElement('div');
+    row.className = 'triplet-row' + (isSel ? ' selected' : '');
+    row.innerHTML = `
+      <span class="triplet-swatch" style="background:${t.color}"></span>
+      <span class="triplet-label">T${t.id}</span>
+      <span class="triplet-angle" style="color:${t.color}">${angleDeg.toFixed(1)}°</span>
+      <button class="triplet-delete" title="Delete">&times;</button>
+    `;
+    row.addEventListener('click', e => {
+      if (e.target.classList.contains('triplet-delete')) {
+        if (confirm('Delete triplet T' + t.id + '?')) deleteTriplet(t.id);
+        return;
+      }
+      state.selected = { tripletId: t.id, pointIdx: 1 };
+      render();
+    });
+    panelList.appendChild(row);
+  }
+}
+
+/* ---------------- export ---------------- */
+
+$('btn-export').addEventListener('click', exportPNG);
+
+function exportPNG() {
+  if (!state.imageDataUrl) { alert('Load an image first.'); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = state.imgW;
+  canvas.height = state.imgH;
+  const ctx = canvas.getContext('2d');
+
+  const tmp = new Image();
+  tmp.onload = () => {
+    ctx.drawImage(tmp, 0, 0);
+    const baseUnit = Math.max(state.imgW, state.imgH) / 800;
+    const armW = 2 * baseUnit;
+    const pointR = 11 * baseUnit;
+    const dotR = 2.5 * baseUnit;
+    const arcR = 36 * baseUnit;
+    const fontPx = 20 * baseUnit;
+    const idFontPx = 14 * baseUnit;
+
+    for (const t of state.triplets) {
+      const [a, v, b] = t.points;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+      ctx.strokeStyle = t.color; ctx.lineWidth = armW;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(v.x, v.y);
+      ctx.moveTo(b.x, b.y); ctx.lineTo(v.x, v.y);
+      ctx.stroke();
+
+      const a1 = Math.atan2(a.y - v.y, a.x - v.x);
+      const a2 = Math.atan2(b.y - v.y, b.x - v.x);
+      let delta = a2 - a1;
+      while (delta > Math.PI) delta -= 2 * Math.PI;
+      while (delta < -Math.PI) delta += 2 * Math.PI;
+      const angleDeg = Math.abs(delta) * 180 / Math.PI;
+
+      ctx.fillStyle = t.color;
+      ctx.globalAlpha = 0.15;
+      ctx.beginPath();
+      ctx.moveTo(v.x, v.y);
+      ctx.arc(v.x, v.y, arcR, a1, a1 + delta, delta < 0);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+
+      ctx.beginPath();
+      ctx.arc(v.x, v.y, arcR, a1, a1 + delta, delta < 0);
+      ctx.stroke();
+
+      for (let i = 0; i < 3; i++) {
+        const p = t.points[i];
+        ctx.strokeStyle = 'white'; ctx.lineWidth = armW * 2;
+        ctx.beginPath(); ctx.arc(p.x, p.y, pointR, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = t.color; ctx.lineWidth = armW * (i === 1 ? 1.4 : 1);
+        ctx.beginPath(); ctx.arc(p.x, p.y, pointR, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = t.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2); ctx.fill();
+      }
+
+      const bisector = a1 + delta / 2;
+      const labelR = arcR + fontPx * 0.9;
+      const lx = v.x + Math.cos(bisector) * labelR;
+      const ly = v.y + Math.sin(bisector) * labelR;
+      const txt = angleDeg.toFixed(1) + '°';
+      ctx.font = `600 ${fontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = fontPx * 0.22; ctx.strokeStyle = 'white';
+      ctx.strokeText(txt, lx, ly);
+      ctx.fillStyle = t.color; ctx.fillText(txt, lx, ly);
+
+      const idR = arcR * 1.3;
+      const idx = v.x + Math.cos(bisector + Math.PI) * idR;
+      const idy = v.y + Math.sin(bisector + Math.PI) * idR;
+      ctx.font = `600 ${idFontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+      ctx.lineWidth = idFontPx * 0.22; ctx.strokeStyle = 'white';
+      ctx.strokeText('T' + t.id, idx, idy);
+      ctx.fillStyle = t.color; ctx.fillText('T' + t.id, idx, idy);
+    }
+
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const d = new Date();
+      const pad = n => String(n).padStart(2,'0');
+      a.download = `angle-measure-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.png`;
+      a.href = url;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, 'image/png');
+  };
+  tmp.src = state.imageDataUrl;
+}
+
+/* ---------------- resize ---------------- */
+
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(render, 80);
+});
+
+/* ---------------- boot ---------------- */
+
+load();
+render();
+</script>
+</body>
+</html>
