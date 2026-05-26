@@ -525,6 +525,7 @@ let pinchStart = null;
 
 canvasArea.addEventListener('pointerdown', e => {
   if (!state.imageDataUrl) return;
+  if (e.target.closest('button')) return;
   canvasArea.setPointerCapture(e.pointerId);
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
