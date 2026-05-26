@@ -261,16 +261,23 @@ let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    const full = {
+      imageDataUrl: state.imageDataUrl,
+      imgW: state.imgW,
+      imgH: state.imgH,
+      triplets: state.triplets,
+      nextId: state.nextId,
+      viewport: state.viewport,
+    };
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        imageDataUrl: state.imageDataUrl,
-        imgW: state.imgW,
-        imgH: state.imgH,
-        triplets: state.triplets,
-        nextId: state.nextId,
-        viewport: state.viewport,
-      }));
-    } catch (e) { console.warn('save failed', e); }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(full));
+    } catch (e) {
+      // Image too large for localStorage quota — save without it so triplets survive
+      try {
+        const slim = { imgW: state.imgW, imgH: state.imgH, triplets: state.triplets, nextId: state.nextId, viewport: state.viewport };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+      } catch (e2) { console.warn('save failed', e2); }
+    }
   }, 250);
 }
 
@@ -525,9 +532,22 @@ let pinchStart = null;
 
 canvasArea.addEventListener('pointerdown', e => {
   if (!state.imageDataUrl) return;
-  if (e.target.closest('button')) return;
   canvasArea.setPointerCapture(e.pointerId);
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  // Capture the pointer to prevent native scroll/refresh gestures, but
+  // manually fire the button click on release so the button still works.
+  const btn = e.target.closest('button');
+  if (btn) {
+    const startX = e.clientX, startY = e.clientY, pid = e.pointerId;
+    const onUp = ev => {
+      if (ev.pointerId !== pid) return;
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 12) btn.click();
+      canvasArea.removeEventListener('pointerup', onUp);
+    };
+    canvasArea.addEventListener('pointerup', onUp);
+    return;
+  }
 
   if (activePointers.size === 2) {
     const pts = [...activePointers.values()];
