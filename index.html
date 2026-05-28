@@ -204,6 +204,9 @@
     <div class="toolbar">
       <button id="btn-upload">Upload</button>
       <button id="btn-add" class="primary">Add triplet</button>
+      <button id="btn-add-pair" class="primary">Add line pair</button>
+      <button id="btn-ref-h" disabled title="Snap selected line pair's reference to horizontal">Ref&nbsp;horizontal</button>
+      <button id="btn-ref-v" disabled title="Snap selected line pair's reference to vertical">Ref&nbsp;vertical</button>
       <button id="btn-export">Export PNG</button>
       <button id="btn-clear" class="danger">Clear</button>
     </div>
@@ -213,7 +216,7 @@
     <div class="canvas-area" id="canvas-area">
       <div class="placeholder" id="placeholder">
         <strong>Drop, paste, or upload a photo</strong>
-        <span>Then click "Add triplet" to measure an angle</span>
+        <span>Then add a triplet or a line pair to measure an angle</span>
       </div>
       <div class="stage" id="stage">
         <img id="img" alt="">
@@ -229,9 +232,9 @@
       </div>
     </div>
     <aside class="panel">
-      <div class="panel-header">Triplets</div>
+      <div class="panel-header">Measurements</div>
       <div class="panel-list" id="panel-list">
-        <div class="panel-empty">No triplets yet</div>
+        <div class="panel-empty">No measurements yet</div>
       </div>
     </aside>
   </main>
@@ -251,17 +254,83 @@ const DOT_R_SCREEN = 2.2;
 const ARC_R_SCREEN = 32;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// Each item is one of:
+//   { id, type:'triplet',  color, points:[a, v, b] }
+//   { id, type:'linepair', color, ref:[p0, p1], seg:[p0, p1] }
+// (legacy saved items without a `type` are treated as triplets)
 const state = {
   imageDataUrl: null,
   imgW: 0,
   imgH: 0,
-  triplets: [],
+  items: [],
   nextId: 1,
-  selected: null,
+  selected: null,            // { itemId, ptKey }
   viewport: { scale: 1, tx: 0, ty: 0 },
-  placeMode: false,
-  placeBuffer: [],
+  placeMode: null,           // null | 'triplet' | 'linepair'
+  placeBuffer: [],           // clicked points so far
+  placeRef: null,            // for 'linepair': the auto reference [p0, p1]
 };
+
+/* ---------------- item helpers ---------------- */
+
+function itemKeys(item) {
+  return item.type === 'linepair'
+    ? ['ref0', 'ref1', 'seg0', 'seg1']
+    : ['0', '1', '2'];
+}
+function getPt(item, key) {
+  if (item.type === 'linepair') {
+    return key === 'ref0' ? item.ref[0]
+         : key === 'ref1' ? item.ref[1]
+         : key === 'seg0' ? item.seg[0]
+         : item.seg[1];
+  }
+  return item.points[+key];
+}
+function setPt(item, key, p) {
+  if (item.type === 'linepair') {
+    if (key === 'ref0') item.ref[0] = p;
+    else if (key === 'ref1') item.ref[1] = p;
+    else if (key === 'seg0') item.seg[0] = p;
+    else item.seg[1] = p;
+  } else {
+    item.points[+key] = p;
+  }
+}
+function isVertexKey(item, key) {
+  return item.type === 'triplet' && key === '1';
+}
+function itemLabel(item) {
+  return (item.type === 'linepair' ? 'L' : 'T') + item.id;
+}
+function defaultKey(item) {
+  return item.type === 'linepair' ? 'seg1' : '1';
+}
+
+function lineDir(seg) {
+  return Math.atan2(seg[1].y - seg[0].y, seg[1].x - seg[0].x);
+}
+function linePairAngleDeg(item) {
+  let d = lineDir(item.seg) - lineDir(item.ref);
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return Math.abs(d) * 180 / Math.PI;
+}
+function itemAngleDeg(item) {
+  return item.type === 'linepair'
+    ? linePairAngleDeg(item)
+    : interiorAngle(item) * 180 / Math.PI;
+}
+
+// Intersection of infinite lines (p1->p2) and (p3->p4); null if parallel.
+function lineIntersection(p1, p2, p3, p4) {
+  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+  const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom;
+  return { x: p1.x + t * d1x, y: p1.y + t * d1y };
+}
 
 const $ = id => document.getElementById(id);
 const canvasArea = $('canvas-area');
@@ -285,16 +354,16 @@ function save() {
       imageDataUrl: state.imageDataUrl,
       imgW: state.imgW,
       imgH: state.imgH,
-      triplets: state.triplets,
+      items: state.items,
       nextId: state.nextId,
       viewport: state.viewport,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(full));
     } catch (e) {
-      // Image too large for localStorage quota — save without it so triplets survive
+      // Image too large for localStorage quota — save without it so measurements survive
       try {
-        const slim = { imgW: state.imgW, imgH: state.imgH, triplets: state.triplets, nextId: state.nextId, viewport: state.viewport };
+        const slim = { imgW: state.imgW, imgH: state.imgH, items: state.items, nextId: state.nextId, viewport: state.viewport };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
       } catch (e2) { console.warn('save failed', e2); }
     }
@@ -308,8 +377,10 @@ function load() {
     const p = JSON.parse(raw);
     if (!p.imageDataUrl) return;
     loadImage(p.imageDataUrl).then(() => {
-      state.triplets = p.triplets || [];
-      state.nextId = p.nextId || (state.triplets.length + 1);
+      // `items` is current; `triplets` is the legacy key
+      state.items = (p.items || p.triplets || []).map(it =>
+        it.type ? it : { ...it, type: 'triplet' });
+      state.nextId = p.nextId || (state.items.length + 1);
       if (p.viewport) {
         state.viewport = p.viewport;
         applyViewport();
@@ -371,10 +442,9 @@ function downscaleDataUrl(dataUrl, maxSide) {
 
 async function handleFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
-  if (state.triplets.length > 0 && !confirm('Loading a new image will clear current triplets. Continue?')) return;
   const raw = await fileToDataUrl(file);
   const url = await downscaleDataUrl(raw, MAX_LONGEST_SIDE);
-  state.triplets = [];
+  state.items = [];
   state.nextId = 1;
   state.selected = null;
   exitPlaceMode();
@@ -468,12 +538,17 @@ $('btn-zoom-out').addEventListener('click', () => {
 });
 $('btn-zoom-fit').addEventListener('click', fitToScreen);
 
-/* ---------------- triplets ---------------- */
+/* ---------------- measurements ---------------- */
 
+function nextColor() {
+  const color = PALETTE[(state.nextId - 1) % PALETTE.length];
+  return color;
+}
 function newTriplet(points) {
-  const id = state.nextId++;
-  const color = PALETTE[(id - 1) % PALETTE.length];
-  return { id, color, points };
+  return { id: state.nextId++, type: 'triplet', color: nextColor(), points };
+}
+function newLinePair(ref, seg) {
+  return { id: state.nextId++, type: 'linepair', color: nextColor(), ref, seg };
 }
 
 function interiorAngle(t) {
@@ -486,17 +561,62 @@ function interiorAngle(t) {
   return Math.acos(Math.max(-1, Math.min(1, c)));
 }
 
-function deleteTriplet(id) {
-  state.triplets = state.triplets.filter(t => t.id !== id);
-  if (state.selected && state.selected.tripletId === id) state.selected = null;
+function getItem(id) { return state.items.find(it => it.id === id); }
+
+function deleteItem(id) {
+  state.items = state.items.filter(it => it.id !== id);
+  if (state.selected && state.selected.itemId === id) state.selected = null;
+  updateRefButtons();
   render(); save();
 }
 
+// Build a default vertical reference centred in the current view.
+function defaultReference() {
+  const r = canvasArea.getBoundingClientRect();
+  const c = screenToImage(r.left + r.width / 2, r.top + r.height / 2);
+  const cx = Math.max(0, Math.min(state.imgW, c.x));
+  const cy = Math.max(0, Math.min(state.imgH, c.y));
+  const len = Math.min(state.imgW, state.imgH) * 0.3;
+  return [{ x: cx, y: cy + len / 2 }, { x: cx, y: cy - len / 2 }]; // p0 bottom, p1 top
+}
+
+// Snap the reference of a line pair to horizontal / vertical, keeping its centre & length.
+function setRefOrientation(item, orient) {
+  const [a, b] = item.ref;
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  let len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len < 1e-6) len = Math.min(state.imgW, state.imgH) * 0.3;
+  if (orient === 'v') {
+    item.ref = [{ x: cx, y: cy + len / 2 }, { x: cx, y: cy - len / 2 }];
+  } else {
+    item.ref = [{ x: cx - len / 2, y: cy }, { x: cx + len / 2, y: cy }];
+  }
+}
+
+const selectedLinePair = () => {
+  if (!state.selected) return null;
+  const it = getItem(state.selected.itemId);
+  return it && it.type === 'linepair' ? it : null;
+};
+function updateRefButtons() {
+  const enabled = !!selectedLinePair();
+  $('btn-ref-h').disabled = !enabled;
+  $('btn-ref-v').disabled = !enabled;
+}
+$('btn-ref-h').addEventListener('click', () => {
+  const it = selectedLinePair(); if (!it) return;
+  setRefOrientation(it, 'h'); render(); save();
+});
+$('btn-ref-v').addEventListener('click', () => {
+  const it = selectedLinePair(); if (!it) return;
+  setRefOrientation(it, 'v'); render(); save();
+});
+
 $('btn-clear').addEventListener('click', () => {
-  if (!confirm('Clear image and all triplets?')) return;
+  if (!confirm('Clear image and all measurements?')) return;
   state.imageDataUrl = null;
   state.imgW = state.imgH = 0;
-  state.triplets = [];
+  state.items = [];
   state.nextId = 1;
   state.selected = null;
   exitPlaceMode();
@@ -510,31 +630,40 @@ $('btn-clear').addEventListener('click', () => {
 
 /* ---------------- place mode ---------------- */
 
-$('btn-add').addEventListener('click', () => {
+function startPlaceMode(mode) {
   if (!state.imageDataUrl) { alert('Load an image first.'); return; }
-  if (state.placeMode) { exitPlaceMode(); return; }
-  state.placeMode = true;
+  if (state.placeMode === mode) { exitPlaceMode(); render(); return; }
+  exitPlaceMode();
+  state.placeMode = mode;
   state.placeBuffer = [];
-  $('btn-add').classList.add('active');
+  state.placeRef = mode === 'linepair' ? defaultReference() : null;
+  $(mode === 'linepair' ? 'btn-add-pair' : 'btn-add').classList.add('active');
   canvasArea.style.cursor = 'crosshair';
   updateStatus();
   render();
-});
+}
+
+$('btn-add').addEventListener('click', () => startPlaceMode('triplet'));
+$('btn-add-pair').addEventListener('click', () => startPlaceMode('linepair'));
 
 function updateStatus() {
-  if (state.placeMode) {
-    const labels = ['Place arm point 1', 'Place vertex (the angle)', 'Place arm point 2'];
-    statusEl.textContent = labels[state.placeBuffer.length] + ' — Esc to cancel';
-    statusEl.classList.add('show');
+  if (!state.placeMode) { statusEl.classList.remove('show'); return; }
+  let labels;
+  if (state.placeMode === 'triplet') {
+    labels = ['Place arm point 1', 'Place vertex (the angle)', 'Place arm point 2'];
   } else {
-    statusEl.classList.remove('show');
+    labels = ['Place measured segment — start point', 'Place measured segment — end point'];
   }
+  statusEl.textContent = labels[state.placeBuffer.length] + ' — Esc to cancel';
+  statusEl.classList.add('show');
 }
 
 function exitPlaceMode() {
-  state.placeMode = false;
+  state.placeMode = null;
   state.placeBuffer = [];
+  state.placeRef = null;
   $('btn-add').classList.remove('active');
+  $('btn-add-pair').classList.remove('active');
   canvasArea.style.cursor = '';
   updateStatus();
 }
@@ -550,13 +679,13 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'ArrowUp') dy = -step;
   else if (e.key === 'ArrowDown') dy = step;
   else if (e.key === 'Delete' || e.key === 'Backspace') {
-    deleteTriplet(state.selected.tripletId);
+    deleteItem(state.selected.itemId);
     return;
   } else return;
   e.preventDefault();
-  const t = state.triplets.find(t => t.id === state.selected.tripletId);
-  if (!t) return;
-  const p = t.points[state.selected.pointIdx];
+  const it = getItem(state.selected.itemId);
+  if (!it) return;
+  const p = getPt(it, state.selected.ptKey);
   p.x = Math.max(0, Math.min(state.imgW, p.x + dx));
   p.y = Math.max(0, Math.min(state.imgH, p.y + dy));
   render(); save();
@@ -600,10 +729,11 @@ canvasArea.addEventListener('pointerdown', e => {
 
   const target = e.target.closest && e.target.closest('[data-point]');
   if (target) {
-    const tripletId = +target.getAttribute('data-triplet');
-    const pointIdx = +target.getAttribute('data-point');
-    state.selected = { tripletId, pointIdx };
-    dragTarget = { kind: 'point', tripletId, pointIdx };
+    const itemId = +target.getAttribute('data-item');
+    const ptKey = target.getAttribute('data-pt');
+    state.selected = { itemId, ptKey };
+    dragTarget = { kind: 'point', itemId, ptKey };
+    updateRefButtons();
     render();
     return;
   }
@@ -612,9 +742,15 @@ canvasArea.addEventListener('pointerdown', e => {
     const p = screenToImage(e.clientX, e.clientY);
     if (p.x < 0 || p.y < 0 || p.x > state.imgW || p.y > state.imgH) return;
     state.placeBuffer.push(p);
-    if (state.placeBuffer.length === 3) {
-      state.triplets.push(newTriplet(state.placeBuffer));
+    const need = state.placeMode === 'triplet' ? 3 : 2;
+    if (state.placeBuffer.length === need) {
+      const item = state.placeMode === 'triplet'
+        ? newTriplet(state.placeBuffer)
+        : newLinePair(state.placeRef, state.placeBuffer);
+      state.items.push(item);
+      state.selected = { itemId: item.id, ptKey: defaultKey(item) };
       exitPlaceMode();
+      updateRefButtons();
       save();
     } else {
       updateStatus();
@@ -624,6 +760,7 @@ canvasArea.addEventListener('pointerdown', e => {
   }
 
   state.selected = null;
+  updateRefButtons();
   dragTarget = {
     kind: 'pan',
     startTx: state.viewport.tx, startTy: state.viewport.ty,
@@ -659,12 +796,12 @@ canvasArea.addEventListener('pointermove', e => {
 
   if (dragTarget.kind === 'point') {
     const p = screenToImage(e.clientX, e.clientY);
-    const t = state.triplets.find(t => t.id === dragTarget.tripletId);
-    if (!t) return;
+    const it = getItem(dragTarget.itemId);
+    if (!it) return;
     const clampedX = Math.max(0, Math.min(state.imgW, p.x));
     const clampedY = Math.max(0, Math.min(state.imgH, p.y));
-    t.points[dragTarget.pointIdx] = { x: clampedX, y: clampedY };
-    showMagnifier(clampedX, clampedY, t.color, e.clientX, e.clientY);
+    setPt(it, dragTarget.ptKey, { x: clampedX, y: clampedY });
+    showMagnifier(clampedX, clampedY, it.color, e.clientX, e.clientY);
     scheduleRender();
   } else if (dragTarget.kind === 'pan') {
     state.viewport.tx = dragTarget.startTx + (e.clientX - dragTarget.startPx);
@@ -764,21 +901,31 @@ function render() {
     dash: 3 / s,
   };
 
-  for (const t of state.triplets) drawTriplet(t, sizes);
+  for (const it of state.items) {
+    if (it.type === 'linepair') drawLinePair(it, sizes);
+    else drawTriplet(it, sizes);
+  }
 
-  if (state.placeMode && state.placeBuffer.length > 0) {
+  if (state.placeMode) {
     const previewColor = '#6b7280';
-    for (const p of state.placeBuffer) {
-      drawPoint(p, previewColor, sizes, null, null, false, false);
+    // For a line pair, show the pending auto reference as a dashed line.
+    if (state.placeMode === 'linepair' && state.placeRef) {
+      svg.appendChild(el('line', {
+        x1: state.placeRef[0].x, y1: state.placeRef[0].y,
+        x2: state.placeRef[1].x, y2: state.placeRef[1].y,
+        stroke: previewColor, 'stroke-width': sizes.armW,
+        'stroke-dasharray': `${sizes.dash * 2} ${sizes.dash}`,
+      }));
+      for (const p of state.placeRef) drawPoint(p, previewColor, sizes, null, null, false, false);
     }
+    for (const p of state.placeBuffer) drawPoint(p, previewColor, sizes, null, null, false, false);
     if (state.placeBuffer.length === 2) {
-      const line = el('line', {
+      svg.appendChild(el('line', {
         x1: state.placeBuffer[0].x, y1: state.placeBuffer[0].y,
         x2: state.placeBuffer[1].x, y2: state.placeBuffer[1].y,
         stroke: previewColor, 'stroke-width': sizes.armW,
         'stroke-dasharray': `${sizes.dash} ${sizes.dash * 0.8}`,
-      });
-      svg.appendChild(line);
+      }));
     }
   }
 
@@ -857,19 +1004,102 @@ function drawTriplet(t, sizes) {
     'stroke-width': 2.5 / state.viewport.scale,
     'stroke-linejoin': 'round',
   });
-  idLabel.textContent = 'T' + t.id;
+  idLabel.textContent = itemLabel(t);
   svg.appendChild(idLabel);
 
   for (let i = 0; i < 3; i++) {
     const isVertex = i === 1;
+    const key = String(i);
     const selected = state.selected
-      && state.selected.tripletId === t.id
-      && state.selected.pointIdx === i;
-    drawPoint(t.points[i], color, sizes, t.id, i, isVertex, selected);
+      && state.selected.itemId === t.id
+      && state.selected.ptKey === key;
+    drawPoint(t.points[i], color, sizes, t.id, key, isVertex, selected);
   }
 }
 
-function drawPoint(p, color, sizes, tripletId, pointIdx, isVertex, selected) {
+function drawLinePair(item, sizes) {
+  const color = item.color;
+  const [r0, r1] = item.ref;
+  const [s0, s1] = item.seg;
+
+  // Reference line: dashed.  Measured segment: solid.
+  svg.appendChild(el('line', {
+    x1: r0.x, y1: r0.y, x2: r1.x, y2: r1.y,
+    stroke: color, 'stroke-width': sizes.armW, 'stroke-linecap': 'round',
+    'stroke-dasharray': `${sizes.dash * 2.2} ${sizes.dash * 1.4}`,
+  }));
+  svg.appendChild(el('line', {
+    x1: s0.x, y1: s0.y, x2: s1.x, y2: s1.y,
+    stroke: color, 'stroke-width': sizes.armW, 'stroke-linecap': 'round',
+  }));
+
+  const angleDeg = linePairAngleDeg(item);
+
+  // Draw the angle arc at the intersection of the two lines, between the
+  // reference direction and the segment direction.
+  const ix = lineIntersection(r0, r1, s0, s1);
+  let labelX, labelY;
+  if (ix && ix.x > -1e5 && ix.x < state.imgW + 1e5 && ix.y > -1e5 && ix.y < state.imgH + 1e5) {
+    const aRef = lineDir(item.ref);
+    const aSeg = lineDir(item.seg);
+    let delta = aSeg - aRef;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    while (delta < -Math.PI) delta += 2 * Math.PI;
+    const arcR = sizes.arcR;
+    const sweepEnd = aRef + delta;
+    const sx = ix.x + Math.cos(aRef) * arcR;
+    const sy = ix.y + Math.sin(aRef) * arcR;
+    const ex = ix.x + Math.cos(sweepEnd) * arcR;
+    const ey = ix.y + Math.sin(sweepEnd) * arcR;
+    const sweepFlag = delta > 0 ? 1 : 0;
+    svg.appendChild(el('path', {
+      d: `M ${ix.x} ${ix.y} L ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey} Z`,
+      fill: color, 'fill-opacity': 0.15,
+    }));
+    svg.appendChild(el('path', {
+      d: `M ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey}`,
+      fill: 'none', stroke: color, 'stroke-width': sizes.armW,
+    }));
+    const bisector = aRef + delta / 2;
+    const labelR = arcR + sizes.fontSize * 1.3;
+    labelX = ix.x + Math.cos(bisector) * labelR;
+    labelY = ix.y + Math.sin(bisector) * labelR;
+  } else {
+    // Parallel lines (or intersection absurdly far): label at segment midpoint.
+    labelX = (s0.x + s1.x) / 2;
+    labelY = (s0.y + s1.y) / 2 - sizes.fontSize;
+  }
+
+  const label = el('text', {
+    x: labelX, y: labelY,
+    'text-anchor': 'middle', 'dominant-baseline': 'middle',
+    fill: color, 'font-size': sizes.fontSize, 'font-weight': 600,
+    'paint-order': 'stroke', stroke: 'white',
+    'stroke-width': 3 / state.viewport.scale, 'stroke-linejoin': 'round',
+  });
+  label.textContent = angleDeg.toFixed(1) + '°';
+  svg.appendChild(label);
+
+  // Item id near the measured segment's first endpoint.
+  const idLabel = el('text', {
+    x: s0.x, y: s0.y - sizes.idFontSize * 1.4,
+    'text-anchor': 'middle', 'dominant-baseline': 'middle',
+    fill: color, 'font-size': sizes.idFontSize, 'font-weight': 600,
+    'paint-order': 'stroke', stroke: 'white',
+    'stroke-width': 2.5 / state.viewport.scale, 'stroke-linejoin': 'round',
+  });
+  idLabel.textContent = itemLabel(item);
+  svg.appendChild(idLabel);
+
+  for (const key of itemKeys(item)) {
+    const selected = state.selected
+      && state.selected.itemId === item.id
+      && state.selected.ptKey === key;
+    drawPoint(getPt(item, key), color, sizes, item.id, key, false, selected);
+  }
+}
+
+function drawPoint(p, color, sizes, itemId, ptKey, isVertex, selected) {
   const ringStroke = sizes.strokeW * (isVertex ? 1.4 : 1);
   svg.appendChild(el('circle', {
     cx: p.x, cy: p.y, r: sizes.pointR,
@@ -894,11 +1124,11 @@ function drawPoint(p, color, sizes, tripletId, pointIdx, isVertex, selected) {
       'pointer-events': 'none',
     }));
   }
-  if (tripletId != null) {
+  if (itemId != null) {
     const hit = el('circle', {
       cx: p.x, cy: p.y, r: sizes.hitR,
       fill: 'black', 'fill-opacity': 0.001,
-      'data-triplet': tripletId, 'data-point': pointIdx,
+      'data-item': itemId, 'data-pt': ptKey, 'data-point': '',
     });
     hit.style.cursor = 'grab';
     svg.appendChild(hit);
@@ -906,28 +1136,31 @@ function drawPoint(p, color, sizes, tripletId, pointIdx, isVertex, selected) {
 }
 
 function renderPanel() {
-  if (state.triplets.length === 0) {
-    panelList.innerHTML = '<div class="panel-empty">No triplets yet</div>';
+  if (state.items.length === 0) {
+    panelList.innerHTML = '<div class="panel-empty">No measurements yet</div>';
     return;
   }
   panelList.innerHTML = '';
-  for (const t of state.triplets) {
-    const angleDeg = interiorAngle(t) * 180 / Math.PI;
-    const isSel = state.selected && state.selected.tripletId === t.id;
+  for (const it of state.items) {
+    const angleDeg = itemAngleDeg(it);
+    const isSel = state.selected && state.selected.itemId === it.id;
+    const kind = it.type === 'linepair' ? 'line pair' : 'triplet';
     const row = document.createElement('div');
     row.className = 'triplet-row' + (isSel ? ' selected' : '');
     row.innerHTML = `
-      <span class="triplet-swatch" style="background:${t.color}"></span>
-      <span class="triplet-label">T${t.id}</span>
-      <span class="triplet-angle" style="color:${t.color}">${angleDeg.toFixed(1)}°</span>
+      <span class="triplet-swatch" style="background:${it.color}"></span>
+      <span class="triplet-label">${itemLabel(it)}</span>
+      <span class="triplet-angle" style="color:${it.color}">${angleDeg.toFixed(1)}°</span>
       <button class="triplet-delete" title="Delete">&times;</button>
     `;
+    row.title = kind;
     row.addEventListener('click', e => {
       if (e.target.classList.contains('triplet-delete')) {
-        if (confirm('Delete triplet T' + t.id + '?')) deleteTriplet(t.id);
+        if (confirm('Delete ' + itemLabel(it) + '?')) deleteItem(it.id);
         return;
       }
-      state.selected = { tripletId: t.id, pointIdx: 1 };
+      state.selected = { itemId: it.id, ptKey: defaultKey(it) };
+      updateRefButtons();
       render();
     });
     panelList.appendChild(row);
@@ -956,11 +1189,68 @@ function exportPNG() {
     const fontPx = 20 * baseUnit;
     const idFontPx = 14 * baseUnit;
 
-    for (const t of state.triplets) {
-      const [a, v, b] = t.points;
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
-      ctx.strokeStyle = t.color; ctx.lineWidth = armW;
+    const drawDot = (p, color, isVertex) => {
+      ctx.strokeStyle = 'white'; ctx.lineWidth = armW * 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, pointR, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = color; ctx.lineWidth = armW * (isVertex ? 1.4 : 1);
+      ctx.beginPath(); ctx.arc(p.x, p.y, pointR, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2); ctx.fill();
+    };
+    const drawText = (txt, x, y, color, px) => {
+      ctx.font = `600 ${px}px ${fontFamily}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = px * 0.22; ctx.strokeStyle = 'white';
+      ctx.strokeText(txt, x, y);
+      ctx.fillStyle = color; ctx.fillText(txt, x, y);
+    };
+    // Filled + outlined arc spanning `delta` from `a1`, centred at (cx,cy).
+    const drawArc = (cx, cy, a1, delta, color) => {
+      ctx.fillStyle = color; ctx.globalAlpha = 0.15;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, arcR, a1, a1 + delta, delta < 0);
+      ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = color; ctx.lineWidth = armW;
+      ctx.beginPath(); ctx.arc(cx, cy, arcR, a1, a1 + delta, delta < 0); ctx.stroke();
+    };
+
+    for (const it of state.items) {
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const color = it.color;
+
+      if (it.type === 'linepair') {
+        const [r0, r1] = it.ref, [s0, s1] = it.seg;
+        ctx.strokeStyle = color; ctx.lineWidth = armW;
+        ctx.setLineDash([armW * 2.2, armW * 1.6]);
+        ctx.beginPath(); ctx.moveTo(r0.x, r0.y); ctx.lineTo(r1.x, r1.y); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(s0.x, s0.y); ctx.lineTo(s1.x, s1.y); ctx.stroke();
+
+        const aRef = lineDir(it.ref), aSeg = lineDir(it.seg);
+        let delta = aSeg - aRef;
+        while (delta > Math.PI) delta -= 2 * Math.PI;
+        while (delta < -Math.PI) delta += 2 * Math.PI;
+
+        const ix = lineIntersection(r0, r1, s0, s1);
+        let lx, ly;
+        if (ix) {
+          drawArc(ix.x, ix.y, aRef, delta, color);
+          const bis = aRef + delta / 2, labelR = arcR + fontPx * 0.9;
+          lx = ix.x + Math.cos(bis) * labelR;
+          ly = ix.y + Math.sin(bis) * labelR;
+        } else {
+          lx = (s0.x + s1.x) / 2; ly = (s0.y + s1.y) / 2 - fontPx;
+        }
+        for (const key of itemKeys(it)) drawDot(getPt(it, key), color, false);
+        drawText(linePairAngleDeg(it).toFixed(1) + '°', lx, ly, color, fontPx);
+        drawText(itemLabel(it), s0.x, s0.y - idFontPx * 1.4, color, idFontPx);
+        continue;
+      }
+
+      const [a, v, b] = it.points;
+      ctx.strokeStyle = color; ctx.lineWidth = armW;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y); ctx.lineTo(v.x, v.y);
       ctx.moveTo(b.x, b.y); ctx.lineTo(v.x, v.y);
@@ -971,48 +1261,18 @@ function exportPNG() {
       let delta = a2 - a1;
       while (delta > Math.PI) delta -= 2 * Math.PI;
       while (delta < -Math.PI) delta += 2 * Math.PI;
-      const angleDeg = Math.abs(delta) * 180 / Math.PI;
 
-      ctx.fillStyle = t.color;
-      ctx.globalAlpha = 0.15;
-      ctx.beginPath();
-      ctx.moveTo(v.x, v.y);
-      ctx.arc(v.x, v.y, arcR, a1, a1 + delta, delta < 0);
-      ctx.closePath(); ctx.fill();
-      ctx.globalAlpha = 1;
-
-      ctx.beginPath();
-      ctx.arc(v.x, v.y, arcR, a1, a1 + delta, delta < 0);
-      ctx.stroke();
-
-      for (let i = 0; i < 3; i++) {
-        const p = t.points[i];
-        ctx.strokeStyle = 'white'; ctx.lineWidth = armW * 2;
-        ctx.beginPath(); ctx.arc(p.x, p.y, pointR, 0, Math.PI * 2); ctx.stroke();
-        ctx.strokeStyle = t.color; ctx.lineWidth = armW * (i === 1 ? 1.4 : 1);
-        ctx.beginPath(); ctx.arc(p.x, p.y, pointR, 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = t.color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2); ctx.fill();
-      }
+      drawArc(v.x, v.y, a1, delta, color);
+      for (let i = 0; i < 3; i++) drawDot(it.points[i], color, i === 1);
 
       const bisector = a1 + delta / 2;
       const labelR = arcR + fontPx * 0.9;
-      const lx = v.x + Math.cos(bisector) * labelR;
-      const ly = v.y + Math.sin(bisector) * labelR;
-      const txt = angleDeg.toFixed(1) + '°';
-      ctx.font = `600 ${fontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.lineWidth = fontPx * 0.22; ctx.strokeStyle = 'white';
-      ctx.strokeText(txt, lx, ly);
-      ctx.fillStyle = t.color; ctx.fillText(txt, lx, ly);
+      drawText((Math.abs(delta) * 180 / Math.PI).toFixed(1) + '°',
+        v.x + Math.cos(bisector) * labelR, v.y + Math.sin(bisector) * labelR, color, fontPx);
 
       const idR = arcR * 1.3;
-      const idx = v.x + Math.cos(bisector + Math.PI) * idR;
-      const idy = v.y + Math.sin(bisector + Math.PI) * idR;
-      ctx.font = `600 ${idFontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
-      ctx.lineWidth = idFontPx * 0.22; ctx.strokeStyle = 'white';
-      ctx.strokeText('T' + t.id, idx, idy);
-      ctx.fillStyle = t.color; ctx.fillText('T' + t.id, idx, idy);
+      drawText(itemLabel(it),
+        v.x + Math.cos(bisector + Math.PI) * idR, v.y + Math.sin(bisector + Math.PI) * idR, color, idFontPx);
     }
 
     canvas.toBlob(blob => {
