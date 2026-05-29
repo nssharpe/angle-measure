@@ -1,0 +1,11 @@
+{
+  "name": "angle-measure",
+  "version": "1.0.0",
+  "description": "A tiny web app for measuring angles on photos — for flexibility, mobility, and gymnastics progress tracking.",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "serve": "python -m http.server 8099"
+  }
+}
