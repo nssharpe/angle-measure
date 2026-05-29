@@ -7,25 +7,27 @@
 <link rel="icon" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f4f4f5;
+    --bg: #ececec;
     --surface: #ffffff;
-    --border: #e4e4e7;
-    --text: #0a0a0a;
-    --muted: #71717a;
-    --accent: #0a0a0a;
-    --accent-hover: #27272a;
-    --danger: #dc2626;
-    --shadow: 0 1px 2px rgba(0,0,0,0.04);
-    --radius: 8px;
-    --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --border: #d9d9d9;
+    --text: #3f3e3e;
+    --muted: #8c8a8a;
+    --accent: #5b675b;          /* signature sage green */
+    --accent-hover: #4f594f;
+    --charcoal: #3f3e3e;        /* dark header/footer bars */
+    --danger: #b04444;
+    --shadow: 0 1px 2px rgba(0,0,0,0.06);
+    --radius: 4px;
+    --font: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-head: "Montserrat", var(--font);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   body {
-    font: 14px/1.45 var(--font);
+    font: 14px/1.6 var(--font);
     color: var(--text);
     background: var(--bg);
     -webkit-tap-highlight-color: transparent;
@@ -37,44 +39,44 @@
   header {
     display: flex; align-items: center; gap: 16px;
     padding: 12px 20px;
-    background: #0a0a0a;
+    background: var(--charcoal);
     color: #fff;
     z-index: 10;
   }
   header h1 {
-    margin: 0; font-size: 15px; font-weight: 800;
-    letter-spacing: 0.18em; text-transform: uppercase;
+    margin: 0; font-family: var(--font-head);
+    font-size: 15px; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase;
     flex: 0 0 auto; color: #fff;
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 11px;
   }
   header h1::before {
     content: ""; display: inline-block;
-    width: 20px; height: 20px;
-    border: 2.5px solid #fff; border-radius: 50%;
-    position: relative;
+    width: 22px; height: 22px; flex: 0 0 auto;
+    border: 2.5px solid var(--accent); border-radius: 50%;
     background:
-      radial-gradient(circle, #fff 1.6px, transparent 1.7px) center/100% 100% no-repeat;
+      radial-gradient(circle, #fff 1.7px, transparent 1.8px) center/100% 100% no-repeat;
   }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 
   button {
-    font: inherit; font-weight: 500;
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.22);
+    font-family: var(--font-head); font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.28);
     color: #fff;
-    padding: 7px 13px;
+    padding: 8px 14px;
     border-radius: var(--radius);
     cursor: pointer;
     transition: background .12s, border-color .12s, color .12s, opacity .12s;
     min-height: 36px;
-    letter-spacing: 0.01em;
   }
-  button:hover { background: rgba(255,255,255,0.16); }
-  button.primary { background: #fff; color: #0a0a0a; border-color: #fff; font-weight: 600; }
-  button.primary:hover { background: #e4e4e7; border-color: #e4e4e7; }
-  button.primary.active { background: #fff; box-shadow: inset 0 0 0 2px #0a0a0a, inset 0 0 0 4px #fff; }
-  button.danger { color: #fca5a5; border-color: rgba(252,165,165,0.4); background: transparent; }
-  button.danger:hover { background: rgba(220,38,38,0.15); color: #fff; }
+  button:hover { background: rgba(255,255,255,0.18); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #6b776b; border-color: #6b776b; }
+  button.primary.active { background: var(--accent-hover); box-shadow: inset 0 0 0 2px var(--charcoal), inset 0 0 0 4px #fff; }
+  button.danger { color: #f0c0c0; border-color: rgba(176,68,68,0.5); background: transparent; }
+  button.danger:hover { background: rgba(176,68,68,0.30); color: #fff; }
   button:disabled { opacity: .35; cursor: not-allowed; }
 
   main { flex: 1; display: flex; min-height: 0; position: relative; }
@@ -97,7 +99,7 @@
     text-align: center;
   }
   .placeholder.hidden { display: none; }
-  .placeholder strong { color: var(--text); font-weight: 600; font-size: 17px; }
+  .placeholder strong { font-family: var(--font-head); color: var(--charcoal); font-weight: 700; font-size: 17px; }
 
   .stage {
     position: absolute;
@@ -142,10 +144,11 @@
     min-height: 0;
   }
   .panel-header {
-    padding: 12px 16px;
+    padding: 13px 16px;
     border-bottom: 1px solid var(--border);
-    font-weight: 600; font-size: 12px; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.05em;
+    font-family: var(--font-head);
+    font-weight: 700; font-size: 12px; color: var(--charcoal);
+    text-transform: uppercase; letter-spacing: 0.12em;
   }
   .panel-list { flex: 1; overflow-y: auto; padding: 6px; }
   .panel-empty { padding: 24px 16px; color: var(--muted); text-align: center; font-size: 13px; }
@@ -164,9 +167,10 @@
     flex: 0 0 auto;
     box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
   }
-  .triplet-label { font-weight: 500; min-width: 28px; }
+  .triplet-label { font-family: var(--font-head); font-weight: 600; min-width: 30px; letter-spacing: 0.02em; }
   .triplet-angle {
-    font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums;
+    font-family: var(--font-head);
+    font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums;
     margin-left: auto; padding-right: 4px;
   }
   .triplet-delete {
