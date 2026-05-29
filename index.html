@@ -196,6 +196,7 @@
   .triplet-flip.on {
     background: var(--accent); color: #fff; border-color: var(--accent);
   }
+  .triplet-flip.on:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
   .triplet-delete {
     border: none; background: transparent;
     color: var(--muted); padding: 4px 8px; min-height: 0;
@@ -431,6 +432,7 @@ function loadImage(dataUrl) {
       svg.setAttribute('height', tmp.naturalHeight);
       svg.setAttribute('viewBox', `0 0 ${tmp.naturalWidth} ${tmp.naturalHeight}`);
       placeholder.classList.add('hidden');
+      stage.style.display = '';
       fitToScreen();
       resolve();
     };
@@ -655,6 +657,7 @@ $('btn-clear').addEventListener('click', () => {
   state.selected = null;
   exitPlaceMode();
   img.removeAttribute('src');
+  stage.style.display = 'none';
   placeholder.classList.remove('hidden');
   state.viewport = { scale: 1, tx: 0, ty: 0 };
   applyViewport();
