@@ -173,13 +173,26 @@
     font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums;
     margin-left: auto; padding-right: 4px;
   }
+  .triplet-flip {
+    font-family: var(--font-head);
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--muted);
+    padding: 3px 8px; min-height: 0; border-radius: 999px;
+    cursor: pointer; line-height: 1.4;
+  }
+  .triplet-flip:hover { background: #f0f2f0; color: var(--text); border-color: var(--accent); }
+  .triplet-flip.on {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
   .triplet-delete {
     border: none; background: transparent;
     color: var(--muted); padding: 4px 8px; min-height: 0;
     border-radius: 4px; font-size: 20px; line-height: 1;
     cursor: pointer;
   }
-  .triplet-delete:hover { background: #fee2e2; color: var(--danger); }
+  .triplet-delete:hover { background: #fbe6e6; color: var(--danger); }
 
   .status {
     position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
@@ -331,26 +344,23 @@ function defaultKey(item) {
 function lineDir(seg) {
   return Math.atan2(seg[1].y - seg[0].y, seg[1].x - seg[0].x);
 }
+// Shared geometry for a line pair so the displayed number and the drawn arc
+// always agree. When `flipped`, we measure from the opposite ray of the
+// reference, giving the supplementary angle (180 − θ) on the other side.
+function linePairGeom(item) {
+  const aRef = lineDir(item.ref) + (item.flipped ? Math.PI : 0);
+  let delta = lineDir(item.seg) - aRef;
+  while (delta > Math.PI) delta -= 2 * Math.PI;
+  while (delta < -Math.PI) delta += 2 * Math.PI;
+  return { aRef, delta, deg: Math.abs(delta) * 180 / Math.PI };
+}
 function linePairAngleDeg(item) {
-  let d = lineDir(item.seg) - lineDir(item.ref);
-  while (d > Math.PI) d -= 2 * Math.PI;
-  while (d < -Math.PI) d += 2 * Math.PI;
-  return Math.abs(d) * 180 / Math.PI;
+  return linePairGeom(item).deg;
 }
 function itemAngleDeg(item) {
   return item.type === 'linepair'
     ? linePairAngleDeg(item)
     : interiorAngle(item) * 180 / Math.PI;
-}
-
-// Intersection of infinite lines (p1->p2) and (p3->p4); null if parallel.
-function lineIntersection(p1, p2, p3, p4) {
-  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
-  const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
-  const denom = d1x * d2y - d1y * d2x;
-  if (Math.abs(denom) < 1e-9) return null;
-  const t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom;
-  return { x: p1.x + t * d1x, y: p1.y + t * d1y };
 }
 
 const $ = id => document.getElementById(id);
@@ -569,7 +579,13 @@ function newTriplet(points) {
   return { id: state.nextId++, type: 'triplet', color: nextColor(), points };
 }
 function newLinePair(ref, seg) {
-  return { id: state.nextId++, type: 'linepair', color: nextColor(), ref, seg };
+  return { id: state.nextId++, type: 'linepair', color: nextColor(), ref, seg, flipped: false };
+}
+function flipLinePair(id) {
+  const it = getItem(id);
+  if (!it || it.type !== 'linepair') return;
+  it.flipped = !it.flipped;
+  render(); save();
 }
 
 function interiorAngle(t) {
@@ -1054,42 +1070,38 @@ function drawLinePair(item, sizes) {
     stroke: color, 'stroke-width': sizes.armW, 'stroke-linecap': 'round',
   }));
 
-  const angleDeg = linePairAngleDeg(item);
+  const { aRef, delta, deg: angleDeg } = linePairGeom(item);
 
-  // Draw the angle arc at the intersection of the two lines, between the
-  // reference direction and the segment direction.
-  const ix = lineIntersection(r0, r1, s0, s1);
-  let labelX, labelY;
-  if (ix && ix.x > -1e5 && ix.x < state.imgW + 1e5 && ix.y > -1e5 && ix.y < state.imgH + 1e5) {
-    const aRef = lineDir(item.ref);
-    const aSeg = lineDir(item.seg);
-    let delta = aSeg - aRef;
-    while (delta > Math.PI) delta -= 2 * Math.PI;
-    while (delta < -Math.PI) delta += 2 * Math.PI;
-    const arcR = sizes.arcR;
-    const sweepEnd = aRef + delta;
-    const sx = ix.x + Math.cos(aRef) * arcR;
-    const sy = ix.y + Math.sin(aRef) * arcR;
-    const ex = ix.x + Math.cos(sweepEnd) * arcR;
-    const ey = ix.y + Math.sin(sweepEnd) * arcR;
-    const sweepFlag = delta > 0 ? 1 : 0;
-    svg.appendChild(el('path', {
-      d: `M ${ix.x} ${ix.y} L ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey} Z`,
-      fill: color, 'fill-opacity': 0.15,
-    }));
-    svg.appendChild(el('path', {
-      d: `M ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey}`,
-      fill: 'none', stroke: color, 'stroke-width': sizes.armW,
-    }));
-    const bisector = aRef + delta / 2;
-    const labelR = arcR + sizes.fontSize * 1.3;
-    labelX = ix.x + Math.cos(bisector) * labelR;
-    labelY = ix.y + Math.sin(bisector) * labelR;
-  } else {
-    // Parallel lines (or intersection absurdly far): label at segment midpoint.
-    labelX = (s0.x + s1.x) / 2;
-    labelY = (s0.y + s1.y) / 2 - sizes.fontSize;
-  }
+  // Draw the angle at the measured segment's origin (s0), using a short guide
+  // arm parallel to the reference. This keeps the vertex on-screen even when
+  // the two lines' true intersection is far away.
+  const arcR = sizes.arcR;
+  const guideLen = arcR * 1.7;
+  // Guide arm: from s0, parallel to the (flipped) reference direction.
+  svg.appendChild(el('line', {
+    x1: s0.x, y1: s0.y,
+    x2: s0.x + Math.cos(aRef) * guideLen, y2: s0.y + Math.sin(aRef) * guideLen,
+    stroke: color, 'stroke-width': sizes.armW, 'stroke-linecap': 'round',
+    'stroke-dasharray': `${sizes.dash * 2.2} ${sizes.dash * 1.4}`,
+  }));
+  const sweepEnd = aRef + delta;
+  const sx = s0.x + Math.cos(aRef) * arcR;
+  const sy = s0.y + Math.sin(aRef) * arcR;
+  const ex = s0.x + Math.cos(sweepEnd) * arcR;
+  const ey = s0.y + Math.sin(sweepEnd) * arcR;
+  const sweepFlag = delta > 0 ? 1 : 0;
+  svg.appendChild(el('path', {
+    d: `M ${s0.x} ${s0.y} L ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey} Z`,
+    fill: color, 'fill-opacity': 0.15,
+  }));
+  svg.appendChild(el('path', {
+    d: `M ${sx} ${sy} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${ex} ${ey}`,
+    fill: 'none', stroke: color, 'stroke-width': sizes.armW,
+  }));
+  const bisector = aRef + delta / 2;
+  const labelR = arcR + sizes.fontSize * 1.3;
+  const labelX = s0.x + Math.cos(bisector) * labelR;
+  const labelY = s0.y + Math.sin(bisector) * labelR;
 
   const label = el('text', {
     x: labelX, y: labelY,
@@ -1101,9 +1113,9 @@ function drawLinePair(item, sizes) {
   label.textContent = angleDeg.toFixed(1) + '°';
   svg.appendChild(label);
 
-  // Item id near the measured segment's first endpoint.
+  // Item id near the measured segment's far endpoint (away from the vertex/arc).
   const idLabel = el('text', {
-    x: s0.x, y: s0.y - sizes.idFontSize * 1.4,
+    x: s1.x, y: s1.y - sizes.idFontSize * 1.4,
     'text-anchor': 'middle', 'dominant-baseline': 'middle',
     fill: color, 'font-size': sizes.idFontSize, 'font-weight': 600,
     'paint-order': 'stroke', stroke: 'white',
@@ -1168,9 +1180,13 @@ function renderPanel() {
     const kind = it.type === 'linepair' ? 'line pair' : 'triplet';
     const row = document.createElement('div');
     row.className = 'triplet-row' + (isSel ? ' selected' : '');
+    const flipBtn = it.type === 'linepair'
+      ? `<button class="triplet-flip${it.flipped ? ' on' : ''}" title="Flip to supplementary angle (180° − value)">Flip</button>`
+      : '';
     row.innerHTML = `
       <span class="triplet-swatch" style="background:${it.color}"></span>
       <span class="triplet-label">${itemLabel(it)}</span>
+      ${flipBtn}
       <span class="triplet-angle" style="color:${it.color}">${angleDeg.toFixed(1)}°</span>
       <button class="triplet-delete" title="Delete">&times;</button>
     `;
@@ -1178,6 +1194,10 @@ function renderPanel() {
     row.addEventListener('click', e => {
       if (e.target.classList.contains('triplet-delete')) {
         if (confirm('Delete ' + itemLabel(it) + '?')) deleteItem(it.id);
+        return;
+      }
+      if (e.target.classList.contains('triplet-flip')) {
+        flipLinePair(it.id);
         return;
       }
       state.selected = { itemId: it.id, ptKey: defaultKey(it) };
@@ -1249,24 +1269,24 @@ function exportPNG() {
         ctx.setLineDash([]);
         ctx.beginPath(); ctx.moveTo(s0.x, s0.y); ctx.lineTo(s1.x, s1.y); ctx.stroke();
 
-        const aRef = lineDir(it.ref), aSeg = lineDir(it.seg);
-        let delta = aSeg - aRef;
-        while (delta > Math.PI) delta -= 2 * Math.PI;
-        while (delta < -Math.PI) delta += 2 * Math.PI;
+        const { aRef, delta, deg } = linePairGeom(it);
 
-        const ix = lineIntersection(r0, r1, s0, s1);
-        let lx, ly;
-        if (ix) {
-          drawArc(ix.x, ix.y, aRef, delta, color);
-          const bis = aRef + delta / 2, labelR = arcR + fontPx * 0.9;
-          lx = ix.x + Math.cos(bis) * labelR;
-          ly = ix.y + Math.sin(bis) * labelR;
-        } else {
-          lx = (s0.x + s1.x) / 2; ly = (s0.y + s1.y) / 2 - fontPx;
-        }
+        // Angle at the segment origin (s0) with a short reference-parallel guide arm.
+        const guideLen = arcR * 1.7;
+        ctx.strokeStyle = color; ctx.lineWidth = armW;
+        ctx.setLineDash([armW * 2.2, armW * 1.6]);
+        ctx.beginPath();
+        ctx.moveTo(s0.x, s0.y);
+        ctx.lineTo(s0.x + Math.cos(aRef) * guideLen, s0.y + Math.sin(aRef) * guideLen);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        drawArc(s0.x, s0.y, aRef, delta, color);
+        const bis = aRef + delta / 2, labelR = arcR + fontPx * 0.9;
+        const lx = s0.x + Math.cos(bis) * labelR;
+        const ly = s0.y + Math.sin(bis) * labelR;
         for (const key of itemKeys(it)) drawDot(getPt(it, key), color, false);
-        drawText(linePairAngleDeg(it).toFixed(1) + '°', lx, ly, color, fontPx);
-        drawText(itemLabel(it), s0.x, s0.y - idFontPx * 1.4, color, idFontPx);
+        drawText(deg.toFixed(1) + '°', lx, ly, color, fontPx);
+        drawText(itemLabel(it), s1.x, s1.y - idFontPx * 1.4, color, idFontPx);
         continue;
       }
 
