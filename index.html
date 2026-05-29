@@ -5,67 +5,83 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Angle Measure</title>
 <link rel="icon" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #fafafa;
+    --bg: #f4f4f5;
     --surface: #ffffff;
-    --border: #e5e7eb;
-    --text: #111827;
-    --muted: #6b7280;
-    --accent: #4f46e5;
-    --accent-hover: #4338ca;
+    --border: #e4e4e7;
+    --text: #0a0a0a;
+    --muted: #71717a;
+    --accent: #0a0a0a;
+    --accent-hover: #27272a;
     --danger: #dc2626;
-    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow: 0 1px 2px rgba(0,0,0,0.04);
+    --radius: 8px;
+    --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   body {
-    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 14px/1.45 var(--font);
     color: var(--text);
     background: var(--bg);
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
   }
 
   .app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 
   header {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 16px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    box-shadow: var(--shadow);
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 20px;
+    background: #0a0a0a;
+    color: #fff;
     z-index: 10;
   }
   header h1 {
-    margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
-    flex: 0 0 auto;
+    margin: 0; font-size: 15px; font-weight: 800;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    flex: 0 0 auto; color: #fff;
+    display: flex; align-items: center; gap: 10px;
+  }
+  header h1::before {
+    content: ""; display: inline-block;
+    width: 20px; height: 20px;
+    border: 2.5px solid #fff; border-radius: 50%;
+    position: relative;
+    background:
+      radial-gradient(circle, #fff 1.6px, transparent 1.7px) center/100% 100% no-repeat;
   }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 
   button {
-    font: inherit;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 7px 12px;
-    border-radius: 6px;
+    font: inherit; font-weight: 500;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.22);
+    color: #fff;
+    padding: 7px 13px;
+    border-radius: var(--radius);
     cursor: pointer;
-    transition: background .12s, border-color .12s;
+    transition: background .12s, border-color .12s, color .12s, opacity .12s;
     min-height: 36px;
+    letter-spacing: 0.01em;
   }
-  button:hover { background: #f3f4f6; }
-  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
-  button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-  button.primary.active { background: var(--accent-hover); box-shadow: inset 0 0 0 2px white, inset 0 0 0 3px var(--accent-hover); }
-  button.danger { color: var(--danger); border-color: #fecaca; }
-  button.danger:hover { background: #fef2f2; }
-  button:disabled { opacity: .5; cursor: not-allowed; }
+  button:hover { background: rgba(255,255,255,0.16); }
+  button.primary { background: #fff; color: #0a0a0a; border-color: #fff; font-weight: 600; }
+  button.primary:hover { background: #e4e4e7; border-color: #e4e4e7; }
+  button.primary.active { background: #fff; box-shadow: inset 0 0 0 2px #0a0a0a, inset 0 0 0 4px #fff; }
+  button.danger { color: #fca5a5; border-color: rgba(252,165,165,0.4); background: transparent; }
+  button.danger:hover { background: rgba(220,38,38,0.15); color: #fff; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
 
   main { flex: 1; display: flex; min-height: 0; position: relative; }
 
   .canvas-area {
     flex: 1; position: relative; overflow: hidden;
-    background: #f1f5f9;
+    background: #e7e7ea;
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
@@ -108,6 +124,7 @@
   .zoom-controls button {
     padding: 4px 10px; min-height: 32px;
     border: none; background: transparent;
+    color: var(--text);
     font-size: 16px;
   }
   .zoom-controls button:hover { background: #f3f4f6; }
@@ -140,8 +157,8 @@
     cursor: pointer;
     transition: background .12s;
   }
-  .triplet-row:hover { background: #f3f4f6; }
-  .triplet-row.selected { background: #eef2ff; }
+  .triplet-row:hover { background: #f4f4f5; }
+  .triplet-row.selected { background: #f4f4f5; box-shadow: inset 3px 0 0 var(--accent); }
   .triplet-swatch {
     width: 12px; height: 12px; border-radius: 50%;
     flex: 0 0 auto;
